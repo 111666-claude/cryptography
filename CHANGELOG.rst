@@ -53,6 +53,13 @@ Changelog
   and
   :func:`~cryptography.hazmat.primitives.serialization.load_ssh_public_key`,
   and serialized in the OpenSSH formats.
+* X.509 path validation no longer aborts the entire candidate search when a
+  single cross-signed intermediate carries an unsupported critical
+  ``nameConstraints`` extension (e.g. one containing a ``directoryName``
+  constraint). That error now disqualifies only the offending candidate, so
+  the verification result is independent of the ordering of the untrusted
+  intermediate list. Only the name constraint and signature check budgets
+  retain their fatal, search-wide behavior.
 
 .. _v50-0-2:
 

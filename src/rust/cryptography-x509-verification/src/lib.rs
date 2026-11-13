@@ -434,9 +434,20 @@ impl<'a, 'chain, B: CryptoOps> ChainBuilder<'a, 'chain, B> {
             // a constraint in a critical name constraints extension to
             // reject the certificate. We don't implement directoryName
             // matching, so a critical extension containing any directoryName
-            // constraint is a hard error. A non-critical extension may be
-            // (partially) ignored, so its directoryName constraints fall
-            // through to the per-SAN evaluation below.
+            // constraint is a hard error for this certificate. A
+            // non-critical extension may be (partially) ignored, so its
+            // directoryName constraints fall through to the per-SAN
+            // evaluation below.
+            //
+            // NOTE: This is an ordinary (non-fatal) error rather than a
+            // `FatalError`: it disqualifies the current candidate only, so
+            // path construction must keep exploring other candidates
+            // (e.g. a cross-signed variant without the unsupported
+            // constraint). Treating it as fatal would make verification
+            // results depend on the ordering of the untrusted intermediate
+            // list, since the first candidate explored would abort the
+            // whole search. Only budget-exhaustion errors are fatal, as
+            // they bound the total work of the entire path construction.
             fn contains_directory_name(
                 subtrees: &Option<SequenceOfSubtrees<'_, Asn1Read>>,
             ) -> bool {
@@ -450,9 +461,10 @@ impl<'a, 'chain, B: CryptoOps> ChainBuilder<'a, 'chain, B> {
                 && (contains_directory_name(&constraints.permitted_subtrees)
                     || contains_directory_name(&constraints.excluded_subtrees))
             {
-                return Err(ValidationError::new(ValidationErrorKind::FatalError(
+                return Err(ValidationError::new(ValidationErrorKind::Other(
                     "critical nameConstraints extension contains an unsupported \
-                     directoryName constraint",
+                     directoryName constraint"
+                        .to_string(),
                 )));
             }
 
@@ -530,7 +542,14 @@ impl<'a, 'chain, B: CryptoOps> ChainBuilder<'a, 'chain, B> {
                             chain.push(working_cert.clone());
                             return Ok(chain);
                         }
-                        // Immediately return on fatal error.
+                        // Immediately return on a fatal error. Fatal errors
+                        // are only produced by the verification budgets
+                        // (name constraint and signature check limits), which
+                        // bound the work of the path construction as a whole.
+                        // Per-certificate errors (including unsupported
+                        // critical extensions) are non-fatal and simply make
+                        // this candidate ineligible, so we record them and
+                        // continue exploring the remaining candidates.
                         Err(
                             e @ ValidationError {
                                 kind: ValidationErrorKind::FatalError(..),
